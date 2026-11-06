@@ -21,3 +21,39 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+
+# ---------- Données volumineuses ----------
+data/*
+!data/.gitkeep
+*.jsonl
+*.parquet
+*.crc
+_SUCCESS
+
+# ---------- Spark ----------
+checkpoints/
+spark-warehouse/
+metastore_db/
+spark-events/
+
+# ---------- Python (compléments) ----------
+venv/
+.pytest_cache/
+
+# ---------- Scala / sbt (GraphX) ----------
+target/
+project/target/
+project/project/
+.bsp/
+.metals/
+
+# ---------- Java / Node (EPIC-07) ----------
+*.class
+build/
+node_modules/
+.next/
+
+# ---------- IDE / OS (compléments) ----------
+.vscode/
+desktop.ini
