@@ -9,8 +9,19 @@ RUN python3 -m pip install --no-cache-dir \
     "ipykernel>=6.29,<7" \
     "py4j==0.10.9.7"
 
+
+# US-03 : API Python de Delta Lake et de GraphFrames
+# --no-deps : PySpark est déjà fourni par l'image Spark (/opt/spark/python)
+# numpy : requis par pyspark.ml, utilisé par GraphFrames
+RUN python3 -m pip install --no-cache-dir --no-deps \
+    "delta-spark==3.3.2" \
+    "graphframes-py==0.9.2" \
+    "numpy==1.26.4" \
+    "importlib_metadata==8.5.0" \
+    "zipp==3.21.0"
+
 # Préparer le répertoire de travail
-RUN mkdir -p /home/spark/notebooks && \
+RUN mkdir -p /home/spark/notebooks /home/spark/.ivy2 && \
     chown -R spark:spark /home/spark
 
 # Configuration de Python et Spark

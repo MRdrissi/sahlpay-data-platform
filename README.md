@@ -60,15 +60,26 @@ lake/
 
 | Composant | Rôle | Version |
 |---|---|---|
-| Apache Spark (standalone) | Traitement distribué : 1 Master, 2 Workers (2 cœurs, 2 Go chacun) | 3.5.7 (Scala 2.12, Java 17) |
-| Apache Kafka (mode KRaft) | Bus de messages, topic `transactions` | 3.9.1 |
-| MinIO | Stockage objet compatible S3 (data lake) | RELEASE.2025-10-15 |
-| JupyterLab + PySpark | Driver et développement des traitements | JupyterLab 4.4.10 |
-| Delta Lake | Tables Gold transactionnelles | à configurer (US-3) |
-| GraphFrames | Analyse de graphes en PySpark | à configurer (US-3) |
-| GraphX (Scala) | Analyse de graphes en Scala | à configurer (US-3) |
+| Apache Spark (standalone) | Traitement distribué : 1 Master, 2 Workers (2 cœurs, 2 Go chacun) | 3.5.7 |
+| Scala / Java | Langage et JVM du cluster Spark | Scala 2.12.18 · Java 17.0.16 |
+| Python / PySpark | Driver et notebooks (conteneur Jupyter) | Python 3.10.12 · PySpark 3.5.7 |
+| Apache Kafka (mode KRaft) | Bus de messages, topic `transactions` (3 partitions) | 3.9.1 |
+| MinIO | Stockage objet compatible S3, bucket `lake` | RELEASE.2025-10-15 |
+| JupyterLab | Développement des traitements | 4.4.10 |
 
-Le détail des choix d'infrastructure est documenté dans [`docs/epics/EPIC-01-infrastructure.md`](docs/epics/EPIC-01-infrastructure.md).
+### Dépendances Spark (US-03)
+
+Déclarées dans [`infrastructure/spark/spark-defaults.conf`](infrastructure/spark/spark-defaults.conf), monté dans le conteneur Jupyter : chaque SparkSession les télécharge depuis Maven Central (cache dans le volume `ivy_cache`) puis les transmet aux Executors.
+
+| Bibliothèque | Coordonnées Maven / paquet Python | Usage |
+|---|---|---|
+| Connecteur Kafka | `org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.7` | Lecture du topic `transactions` (Parties 4 et 5) |
+| Connecteur S3A | `org.apache.hadoop:hadoop-aws:3.3.4` | Lecture et écriture dans MinIO (`s3a://lake/...`) |
+| Delta Lake | `io.delta:delta-spark_2.12:3.3.2` · `delta-spark==3.3.2` | Tables Gold, `DESCRIBE HISTORY` (Partie 5) |
+| GraphFrames | `io.graphframes:graphframes-spark3_2.12:0.9.2` · `graphframes-py==0.9.2` | Motifs et degrés (Partie 6) |
+| GraphX | inclus dans Spark 3.5.7 (Scala) | degrees, connectedComponents, PageRank (Partie 6) |
+
+Règle de compatibilité : toutes les bibliothèques JVM sont compilées pour **Scala 2.12** et **Spark 3.5**. Le détail est documenté dans [`docs/epics/EPIC-01-infrastructure.md`](docs/epics/EPIC-01-infrastructure.md#15-user-story-us-03--configuration-et-validation-des-dépendances).
 
 ---
 
@@ -79,7 +90,8 @@ sahlpay-data-platform/
 ├── docker-compose.yaml        # Kafka, Spark Master + 2 Workers, MinIO, Jupyter
 ├── .env.example               # Modèle de configuration locale
 ├── infrastructure/
-│   └── jupyter/Dockerfile     # Image Jupyter alignée sur le cluster Spark
+│   ├── jupyter/Dockerfile     # Image Jupyter alignée sur le cluster Spark (+ Delta, GraphFrames)
+│   └── spark/spark-defaults.conf  # Dépendances Spark, configuration S3A et Delta
 ├── producer/                  # producer.py, merchants.json
 │   └── tests/                 # Tests automatisés du générateur
 ├── spark/
@@ -120,6 +132,20 @@ docker compose up -d --build
 docker compose ps
 ```
 
+### Initialisation (une seule fois par machine)
+
+```bash
+# Topic Kafka transactions (3 partitions)
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
+  --create --topic transactions --partitions 3 --replication-factor 1
+
+# Bucket MinIO lake
+docker compose exec minio sh -c 'mc alias set local http://localhost:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD'
+docker compose exec minio mc mb local/lake
+```
+
+> Avant le lancement, vérifier avec `docker ps` qu'aucun autre conteneur n'occupe les ports 8080, 8081, 8082, 8888, 9000, 9001 ou 29092.
+
 ### Interfaces
 
 | Service | URL |
@@ -135,7 +161,7 @@ docker compose ps
 
 ```bash
 docker compose down           # conserve les volumes (données MinIO et Kafka)
-docker compose down -v        # supprime aussi les volumes
+docker compose down -v        # supprime aussi les volumes (topic, bucket, cache des dépendances)
 ```
 
 Le guide complet de déploiement et de vérification se trouve dans [`docs/epics/EPIC-01-infrastructure.md`](docs/epics/EPIC-01-infrastructure.md#11-guide-de-déploiement-et-de-vérification).

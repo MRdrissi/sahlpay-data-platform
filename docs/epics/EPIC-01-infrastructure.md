@@ -1275,3 +1275,289 @@ La SparkSession est arrêtée en fin de notebook avec `spark.stop()` afin de lib
 
 **Documentation technique — EPIC-01 / US-05**  
 **SahlPay Data Platform — Zakaria El Bergui**
+
+
+---
+
+## 15. User Story US-03 — Configuration et validation des dépendances
+
+**Responsable :** Zakaria El Bergui  
+**Ticket Jira :** SBD-10 (sous-tâches SBD-55 à SBD-60)  
+**Statut :** ✅ Implémentée et validée
+
+### 15.1. Objectif
+
+Rendre le cluster Spark capable de dialoguer avec chaque brique du projet : Kafka (streaming), MinIO (data lake), Delta Lake (tables Gold), GraphFrames et GraphX (analyse de graphes). Chacune exige une bibliothèque supplémentaire, dans une version compatible avec Spark 3.5.7 et Scala 2.12.
+
+### 15.2. Critères d'acceptation
+
+| Ticket | Critère | Statut |
+|---|---|---|
+| SBD-55 | Les versions de Spark, Scala, Java, PySpark, Kafka, Delta Lake et GraphFrames sont documentées | ✅ |
+| SBD-56 | Spark peut lire des événements depuis Kafka | ✅ |
+| SBD-57 | Spark peut lire et écrire des fichiers Parquet dans MinIO | ✅ |
+| SBD-58 | Delta Lake est configuré et une opération d'écriture/lecture fonctionne | ✅ |
+| SBD-59 | GraphFrames est installé et un graphe simple peut être construit avec PySpark | ✅ |
+| SBD-60 | GraphX est disponible en Scala et un algorithme simple fonctionne sur un graphe de test | ✅ |
+
+Livrables :
+
+- `infrastructure/spark/spark-defaults.conf` : dépendances et configuration Spark ;
+- `infrastructure/jupyter/Dockerfile` : paquets Python de Delta Lake et GraphFrames ;
+- `docker-compose.yaml` : montage de la configuration, cache des dépendances, identifiants MinIO pour Jupyter ;
+- `notebooks/03_us03_dependances.ipynb` : validation de SBD-55 à SBD-59 ;
+- `graph/graphx/us03_graphx_test.scala` : validation de SBD-60.
+
+### 15.3. Versions et compatibilité (SBD-55)
+
+Versions relevées dans les conteneurs :
+
+```powershell
+docker compose exec jupyter /opt/spark/bin/spark-submit --version
+docker compose exec jupyter python3 -c "import sys, pyspark; print(sys.version.split()[0], pyspark.__version__)"
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --version
+```
+
+| Composant | Version | Source |
+|---|---|---|
+| Spark | 3.5.7 | Conteneur (mesurée) |
+| Scala | 2.12.18 | Conteneur (mesurée) |
+| Java | 17.0.16 | Conteneur (mesurée) |
+| Python | 3.10.12 | Conteneur (mesurée) |
+| PySpark | 3.5.7 | Conteneur (mesurée) |
+| Kafka (broker) | 3.9.1 | Conteneur (mesurée) |
+| Connecteur Kafka | `spark-sql-kafka-0-10_2.12:3.5.7` (client Kafka 3.4.1) | Ajouté (SBD-56) |
+| Connecteur S3A | `hadoop-aws:3.3.4` (AWS SDK 1.12.262) | Ajouté (SBD-57) |
+| Delta Lake | `delta-spark_2.12:3.3.2` + `delta-spark==3.3.2` (Python) | Ajouté (SBD-58) |
+| GraphFrames | `graphframes-spark3_2.12:0.9.2` + `graphframes-py==0.9.2` (Python) | Ajouté (SBD-59) |
+| GraphX | 3.5.7 | Inclus dans Spark |
+
+Règles de choix :
+
+- **Scala 2.12** : toute bibliothèque JVM porte le suffixe `_2.12`, sinon Spark lève des erreurs `ClassNotFoundException` ou `NoSuchMethodError`.
+- **Connecteur Kafka** : même version que Spark. Le client Kafka 3.4.1 qu'il embarque est compatible avec un broker plus récent (3.9.1).
+- **hadoop-aws 3.3.4** : même version que le Hadoop embarqué dans Spark 3.5 (confirmé par la résolution des dépendances : `hadoop-client-runtime 3.3.4`).
+- **Delta Lake 3.3.x** : seule la série 3.x prend en charge Spark 3.5 ; Delta 4.x cible Spark 4.
+- **GraphFrames 0.9.2** : artefact `graphframes-spark3` (Spark 3.x) ; le paquet Python exige Python ≥ 3.10.
+
+![Versions de Spark, Scala et Java](../screenshots/EPIC-01-US-03_versions_spark_scala_java.png)
+
+![Versions de Python et PySpark](../screenshots/EPIC-01-US-03_versions_python_pyspark.png)
+
+![Version de Kafka](../screenshots/EPIC-01-US-03_version_kafka.png)
+
+![Versions des bibliothèques installées (notebook, section 6)](../screenshots/EPIC-01-US-03_versions_bibliotheques.png)
+
+### 15.4. Mise en place des dépendances
+
+#### Principe
+
+Les bibliothèques JVM sont déclarées dans `spark.jars.packages`. Au démarrage d'une SparkSession, le **Driver** (conteneur Jupyter) les télécharge depuis Maven Central avec Ivy, puis les transmet aux **Executors**. Les Workers n'ont donc pas besoin d'être modifiés.
+
+Le fichier `spark-defaults.conf` est lu automatiquement par chaque SparkSession : les notebooks des EPIC suivants n'ont pas à répéter cette configuration.
+
+#### `infrastructure/spark/spark-defaults.conf`
+
+```properties
+spark.jars.packages  org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.7,org.apache.hadoop:hadoop-aws:3.3.4,io.delta:delta-spark_2.12:3.3.2,io.graphframes:graphframes-spark3_2.12:0.9.2
+spark.jars.ivy       /home/spark/.ivy2
+
+spark.hadoop.fs.s3a.endpoint                  http://minio:9000
+spark.hadoop.fs.s3a.path.style.access         true
+spark.hadoop.fs.s3a.connection.ssl.enabled    false
+spark.hadoop.fs.s3a.impl                      org.apache.hadoop.fs.s3a.S3AFileSystem
+spark.hadoop.fs.s3a.aws.credentials.provider  org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
+
+spark.sql.extensions             io.delta.sql.DeltaSparkSessionExtension
+spark.sql.catalog.spark_catalog  org.apache.spark.sql.delta.catalog.DeltaCatalog
+```
+
+| Paramètre | Rôle |
+|---|---|
+| `spark.jars.packages` | Bibliothèques JVM (format `groupe:artefact:version`) |
+| `spark.jars.ivy` | Cache des téléchargements, sur le volume `ivy_cache` |
+| `fs.s3a.endpoint` | Adresse de MinIO à la place d'Amazon S3 |
+| `fs.s3a.path.style.access` | Adresses de la forme `minio:9000/lake/...`, attendues par MinIO |
+| `fs.s3a.connection.ssl.enabled` | HTTP simple en local |
+| `fs.s3a.aws.credentials.provider` | Identifiants fournis par la configuration de la session |
+| `spark.sql.extensions` / `spark_catalog` | Commandes SQL Delta (`DESCRIBE HISTORY`, `MERGE`...) et tables Delta |
+
+Les identifiants MinIO ne figurent pas dans ce fichier (versionné). Ils sont transmis par Docker Compose depuis `.env` et lus dans le notebook :
+
+```python
+.config("spark.hadoop.fs.s3a.access.key", os.environ["MINIO_ROOT_USER"])
+.config("spark.hadoop.fs.s3a.secret.key", os.environ["MINIO_ROOT_PASSWORD"])
+```
+
+#### `docker-compose.yaml` (service `jupyter`)
+
+```yaml
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - ./notebooks:/home/spark/notebooks
+      - ./infrastructure/spark/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+      - ivy_cache:/home/spark/.ivy2
+```
+
+Le volume `ivy_cache` évite de retélécharger les dépendances (environ 340 Mo, dont 280 Mo pour l'AWS SDK) à chaque recréation du conteneur.
+
+#### `infrastructure/jupyter/Dockerfile`
+
+```dockerfile
+RUN python3 -m pip install --no-cache-dir --no-deps \
+    "delta-spark==3.3.2" \
+    "graphframes-py==0.9.2" \
+    "numpy==1.26.4" \
+    "importlib_metadata==8.5.0" \
+    "zipp==3.21.0"
+
+RUN mkdir -p /home/spark/notebooks /home/spark/.ivy2 && \
+    chown -R spark:spark /home/spark
+```
+
+- `--no-deps` empêche pip de réinstaller PySpark, déjà fourni par l'image (`/opt/spark/python`).
+- `numpy` est requis par `pyspark.ml`, que GraphFrames utilise.
+- Le dossier `.ivy2` est créé dans l'image et attribué à l'utilisateur `spark`, pour que le volume `ivy_cache` hérite de ces droits.
+
+### 15.5. Lecture depuis Kafka (SBD-56)
+
+Un topic de test `us03-kafka-test` (1 partition) est utilisé pour ne pas polluer le topic `transactions` :
+
+```powershell
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --topic us03-kafka-test --partitions 1 --replication-factor 1
+```
+
+Trois événements JSON y sont publiés avec `kafka-console-producer.sh`, puis lus en batch par Spark :
+
+```python
+df_kafka = (
+    spark.read.format("kafka")
+    .option("kafka.bootstrap.servers", "kafka:9092")
+    .option("subscribe", "us03-kafka-test")
+    .option("startingOffsets", "earliest")
+    .option("endingOffsets", "latest")
+    .load()
+)
+```
+
+Kafka renvoie les colonnes `key`, `value` (binaire), `topic`, `partition`, `offset` et `timestamp`. Les trois messages sont lus en partition 0, offsets 0 à 2. La colonne `value` est ensuite convertie en colonnes avec `from_json` et un schéma explicite : **3 événements** lus.
+
+![Lecture du topic Kafka par Spark](../screenshots/EPIC-01-US-03_spark_lecture_kafka.png)
+
+![Conversion JSON en colonnes](../screenshots/EPIC-01-US-03_spark_kafka_json.png)
+
+### 15.6. Parquet dans MinIO (SBD-57)
+
+```python
+parquet_path = "s3a://lake/_tests/us03/parquet"
+events.write.mode("overwrite").parquet(parquet_path)
+spark.read.parquet(parquet_path).count()   # 3
+```
+
+Les données de test sont écrites sous `lake/_tests/us03/`, à l'écart des couches Bronze, Silver et Gold. Vérification côté MinIO :
+
+```text
+$ mc ls --recursive local/lake/_tests/us03/parquet
+0B     _SUCCESS
+1.3KiB part-00000-...-c000.snappy.parquet
+```
+
+`_SUCCESS` indique que l'écriture s'est terminée sans erreur ; le fichier Parquet est compressé en Snappy.
+
+![Écriture et lecture Parquet dans MinIO](../screenshots/EPIC-01-US-03_spark_parquet_minio.png)
+
+![Fichiers Parquet dans MinIO](../screenshots/EPIC-01-US-03_minio_fichiers_parquet.png)
+
+### 15.7. Delta Lake (SBD-58)
+
+```python
+delta_path = "s3a://lake/_tests/us03/delta"
+events.write.format("delta").mode("overwrite").save(delta_path)   # version 0
+extra.write.format("delta").mode("append").save(delta_path)       # version 1
+```
+
+| Vérification | Résultat |
+|---|---|
+| Lecture de la dernière version | 4 lignes |
+| `DeltaTable.history()` | versions 0 et 1 (`WRITE`) |
+| Time travel `versionAsOf = 0` | 3 lignes |
+
+Contenu de la table dans MinIO :
+
+```text
+_delta_log/00000000000000000000.json   journal de la version 0
+_delta_log/00000000000000000001.json   journal de la version 1
+_delta_log/*.crc                       sommes de contrôle
+part-*.snappy.parquet                  données
+```
+
+Une table Delta est un ensemble de fichiers Parquet accompagné d'un journal de transactions. Une modification ajoute des fichiers et une entrée de journal sans supprimer les anciens fichiers, ce qui permet le *time travel*.
+
+![Écriture et lecture Delta](../screenshots/EPIC-01-US-03_delta_ecriture_lecture.png)
+
+![Historique Delta et time travel](../screenshots/EPIC-01-US-03_delta_historique.png)
+
+![Journal Delta dans MinIO](../screenshots/EPIC-01-US-03_minio_delta_log.png)
+
+### 15.8. GraphFrames (SBD-59)
+
+Graphe de test : trois comptes (`W-1`, `W-2`, `W-3`) utilisent l'appareil `D-1`, et `W-1` transfère à `W-2`.
+
+| Vérification | Résultat |
+|---|---|
+| Taille du graphe | 4 sommets, 4 arêtes |
+| `inDegrees` | `D-1` = 3, `W-2` = 1 |
+| Motif `(a)-[e1]->(d); (b)-[e2]->(d)` sur un appareil | (W-1, W-2), (W-1, W-3), (W-2, W-3) |
+
+Ce motif correspond au signal « appareil partagé » de la Partie 6.
+
+![GraphFrames : degrés entrants](../screenshots/EPIC-01-US-03_graphframes_degres.png)
+
+![GraphFrames : comptes partageant un appareil](../screenshots/EPIC-01-US-03_graphframes_motif.png)
+
+### 15.9. GraphX en Scala (SBD-60)
+
+GraphX est inclus dans Spark mais ne dispose que d'une API Scala. Le script `graph/graphx/us03_graphx_test.scala` est exécuté avec `spark-shell` sur le cluster :
+
+```powershell
+Get-Content graph\graphx\us03_graphx_test.scala | docker compose exec -T jupyter /opt/spark/bin/spark-shell `
+  --master spark://spark-master:7077 --name SahlPay-US03-GraphX `
+  --conf spark.driver.host=jupyter --conf spark.driver.bindAddress=0.0.0.0 `
+  --conf spark.executor.memory=1g --conf spark.cores.max=4
+```
+
+GraphX exige des identifiants de sommets numériques (`VertexId`, de type `Long`) : les identifiants métier (`W-1`, `D-1`) sont associés à des entiers, comme le demande la Partie 6.
+
+| Algorithme | Résultat |
+|---|---|
+| Taille | 6 sommets, 5 arêtes |
+| `degrees` | `D-1` = 3 ; `W-1`, `W-2` = 2 ; autres = 1 |
+| `connectedComponents` | {D-1, W-1, W-2, W-3} et {W-4, W-5} |
+| `pageRank(0.0001)` | `D-1` = 2,143 (premier), `W-5` = 1,137, `W-2` = 0,876 |
+
+L'identifiant d'une composante connexe est le plus petit `VertexId` qu'elle contient (1 et 5).
+
+![GraphX : degrés, composantes connexes et PageRank](../screenshots/EPIC-01-US-03_graphx_scala.png)
+
+### 15.10. Difficultés rencontrées
+
+**Cache Ivy dans `/nonexistent`.** Au premier essai, la SparkSession échouait avec `FileNotFoundException: /nonexistent/.ivy2/cache/...` puis `JAVA_GATEWAY_EXITED`. Java détermine le dossier personnel à partir du compte système, et l'utilisateur `spark` de l'image a pour dossier personnel `/nonexistent` (la variable `HOME` du Dockerfile n'est pas prise en compte par Ivy). Solution : `spark.jars.ivy /home/spark/.ivy2`.
+
+**Droits du volume `ivy_cache`.** Un volume monté sur un dossier absent de l'image est créé avec le propriétaire `root`, en lecture seule pour l'utilisateur `spark`. Solution : créer `/home/spark/.ivy2` dans le Dockerfile avant le `chown`.
+
+**`ModuleNotFoundError: numpy`.** GraphFrames importe `pyspark.ml`, qui dépend de NumPy, absent de l'image. L'option `--no-deps` empêchait son installation automatique. Solution : ajout explicite de `numpy==1.26.4` (série 1.x, compatible avec PySpark 3.5).
+
+**Redémarrage du kernel.** `spark.jars.packages` n'est lu qu'au démarrage de la JVM du Driver : après chaque modification de `spark-defaults.conf`, le kernel Jupyter doit être redémarré.
+
+**Ressources du cluster.** Une SparkSession laissée active occupe les 4 cœurs (`spark.cores.max = 4`) : une seconde application reste en attente. Chaque notebook se termine donc par `spark.stop()`.
+
+### 15.11. Bilan de l'US-03
+
+**US-03 est validée.** Le cluster lit Kafka, écrit et lit Parquet et Delta dans MinIO, et exécute des analyses de graphes avec GraphFrames (PySpark) et GraphX (Scala). La configuration étant centralisée dans `spark-defaults.conf`, les notebooks des EPIC 02 à 06 disposent de ces dépendances sans configuration supplémentaire, à condition de transmettre les identifiants MinIO à la session (voir 15.4).
+
+---
+
+**Documentation technique — EPIC-01 / US-03**  
+**SahlPay Data Platform — Zakaria El Bergui**

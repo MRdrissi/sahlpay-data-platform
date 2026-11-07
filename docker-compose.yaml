@@ -130,6 +130,9 @@ services:
     image: sahlpay-jupyter:spark-3.5.7
 
     hostname: jupyter
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
 
     ports:
       - "127.0.0.1:8888:8888"
@@ -137,6 +140,8 @@ services:
 
     volumes:
       - ./notebooks:/home/spark/notebooks
+      - ./infrastructure/spark/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+      - ivy_cache:/home/spark/.ivy2
 
     depends_on:
       - spark-master
@@ -153,4 +158,5 @@ networks:
 volumes:
   minio_data:
   kafka_data:
+  ivy_cache:
   
