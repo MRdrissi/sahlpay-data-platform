@@ -1097,3 +1097,181 @@ La validation sur une seconde machine après clonage du repository constituera u
 **Documentation technique — EPIC-01 / US-01**  
 **SahlPay Data Platform — Marwane Drissi**  
 **Année universitaire 2026–2027**
+
+---
+
+## 14. User Story US-05 — Topic Kafka, bucket MinIO et SparkSession distribuée
+
+**Responsable :** Zakaria El Bergui  
+**Ticket Jira :** SBD-12 (sous-tâches SBD-67 à SBD-73)  
+**Statut :** ✅ Implémentée et validée
+
+### 14.1. Objectif
+
+Préparer les ressources utilisées par toutes les parties suivantes du projet :
+
+- le topic Kafka `transactions`, dans lequel `producer.py` publie les événements de paiement ;
+- le bucket MinIO `lake`, qui accueillera les couches Bronze, Silver et Gold ;
+- une SparkSession connectée au cluster standalone, preuve que les traitements s'exécutent sur les Workers.
+
+### 14.2. Critères d'acceptation
+
+| Ticket | Critère | Statut |
+|---|---|---|
+| SBD-67 | Le topic Kafka `transactions` est créé avec exactement 3 partitions | ✅ |
+| SBD-68 | Le bucket MinIO `lake` est créé et accessible | ✅ |
+| SBD-69 | Une SparkSession se connecte à `spark://spark-master:7077` | ✅ |
+| SBD-70 | La version de Spark, le Master, l'appName et `sc.defaultParallelism` sont affichés | ✅ |
+| SBD-71 | Un traitement Spark simple s'exécute sur le cluster | ✅ |
+| SBD-72 | Une capture de Spark Master UI montre les deux Workers actifs | ✅ |
+| SBD-73 | Une capture de MinIO montre le bucket `lake` | ✅ |
+
+### 14.3. Création du topic Kafka `transactions`
+
+Le topic est créé avec l'outil `kafka-topics.sh` fourni dans le conteneur Kafka :
+
+```powershell
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh `
+  --bootstrap-server kafka:9092 `
+  --create --topic transactions `
+  --partitions 3 --replication-factor 1
+```
+
+| Paramètre | Valeur | Justification |
+|---|---|---|
+| `--partitions` | 3 | Exigence du sujet ; permet à Spark de lire le topic avec 3 tâches en parallèle |
+| `--replication-factor` | 1 | Un seul broker dans le cluster : il ne peut exister qu'une copie de chaque partition |
+
+Vérification :
+
+```powershell
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh `
+  --bootstrap-server kafka:9092 --describe --topic transactions
+```
+
+```text
+Topic: transactions  PartitionCount: 3  ReplicationFactor: 1
+  Partition: 0  Leader: 1  Replicas: 1  Isr: 1
+  Partition: 1  Leader: 1  Replicas: 1  Isr: 1
+  Partition: 2  Leader: 1  Replicas: 1  Isr: 1
+```
+
+Les trois partitions sont gérées par le broker 1 (`KAFKA_NODE_ID: 1`), qui en est le leader et l'unique réplique synchronisée (ISR).
+
+![Topic Kafka transactions avec 3 partitions](../screenshots/EPIC-01-US-05_kafka_topic_transactions.png)
+
+### 14.4. Création du bucket MinIO `lake`
+
+Le bucket est créé avec le client MinIO `mc`, déjà présent dans l'image MinIO. Une commande est préférée à la console web car elle est reproductible et documentable.
+
+```powershell
+# Déclarer le serveur local (identifiants lus dans les variables d'environnement du conteneur)
+docker compose exec minio sh -c 'mc alias set local http://localhost:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD'
+
+# Créer le bucket
+docker compose exec minio mc mb local/lake
+
+# Vérifier
+docker compose exec minio mc ls local
+```
+
+```text
+Added `local` successfully.
+Bucket created successfully `local/lake`.
+[2026-11-07 13:15:20 UTC]     0B lake/
+```
+
+Les identifiants ne figurent pas dans la commande : ils proviennent du fichier `.env`, transmis au conteneur par Docker Compose. Les guillemets simples empêchent PowerShell d'interpréter `$`, afin que la substitution soit faite par le shell du conteneur.
+
+> L'alias `local` est stocké dans `/tmp/.mc/` du conteneur. Il doit être redéclaré après une recréation du conteneur MinIO ; le bucket, lui, est conservé dans le volume `minio_data`.
+
+![Création du bucket lake avec mc](../screenshots/EPIC-01-US-05_minio_mc_bucket_lake.png)
+
+![Bucket lake dans la console MinIO](../screenshots/EPIC-01-US-05_minio_bucket_lake.png)
+
+### 14.5. SparkSession distribuée
+
+Notebook : [`notebooks/02_us05_validation_cluster.ipynb`](../../notebooks/02_us05_validation_cluster.ipynb)
+
+```python
+spark = (
+    SparkSession.builder
+    .appName("SahlPay-US05-Validation-Cluster")
+    .master("spark://spark-master:7077")
+    .config("spark.driver.host", "jupyter")
+    .config("spark.driver.bindAddress", "0.0.0.0")
+    .config("spark.executor.cores", "2")
+    .config("spark.executor.memory", "1g")
+    .config("spark.cores.max", "4")
+    .getOrCreate()
+)
+```
+
+Résultat de l'affichage des informations de session :
+
+| Information | Valeur obtenue |
+|---|---|
+| Version de Spark | 3.5.7 |
+| Master | `spark://spark-master:7077` |
+| appName | `SahlPay-US05-Validation-Cluster` |
+| Application ID | `app-20261107132927-0000` |
+| `sc.defaultParallelism` | 4 (2 Workers × 2 cœurs) |
+
+![Informations de la SparkSession](../screenshots/EPIC-01-US-05_sparkSession_infos.png)
+
+### 14.6. Traitement distribué
+
+Le traitement calcule la somme des carrés de 1 à 1 000 000, répartie sur 4 partitions :
+
+```python
+rdd = sc.parallelize(range(1, n + 1), numSlices=sc.defaultParallelism)
+total = rdd.map(lambda x: x * x).sum()
+```
+
+- `parallelize` et `map` sont des **transformations** : elles sont enregistrées sans être exécutées.
+- `sum` est une **action** : elle déclenche l'envoi des tâches aux Executors.
+
+| Mesure | Résultat |
+|---|---|
+| Partitions | 4 |
+| Somme calculée | 333 333 833 333 500 000 |
+| Valeur théorique n(n+1)(2n+1)/6 | 333 333 833 333 500 000 |
+| Résultat correct | True |
+| Durée | 1,26 s |
+
+Pour prouver que le calcul n'est pas réalisé par le Driver, chaque tâche renvoie le nom de la machine qui l'exécute :
+
+```text
+Executors ayant exécuté les tâches : ['spark-worker-2', 'spark-worker-1']
+Nombre d'Executors                 : 2
+```
+
+Les tâches ont été exécutées sur les deux Workers et non dans le conteneur Jupyter.
+
+![Traitement distribué sur les deux Workers](../screenshots/EPIC-01-US-05_traitement_distribue.png)
+
+### 14.7. Observation dans Spark Master UI
+
+Pendant l'exécution de l'application :
+
+- **Alive Workers : 2**, tous deux à l'état `ALIVE` ;
+- **Cores in use : 4 Total, 4 Used** ;
+- un Executor par Worker (2 cœurs, 1024 MiB) ;
+- l'application `SahlPay-US05-Validation-Cluster` à l'état `RUNNING`.
+
+![Spark Master UI avec les deux Workers et l'application US-05](../screenshots/EPIC-01-US-05_sparkMaster_2Workers_application.png)
+
+La SparkSession est arrêtée en fin de notebook avec `spark.stop()` afin de libérer les 4 cœurs du cluster.
+
+### 14.8. Difficulté rencontrée
+
+**Conflit de port 8081.** Un conteneur `mongo-express` d'un autre projet utilisait déjà le port 8081, également exposé par `spark-worker-1`. Il a été arrêté avec `docker stop` avant le lancement de l'infrastructure. Avant `docker compose up`, il est recommandé de vérifier avec `docker ps` qu'aucun conteneur n'occupe les ports 8080, 8081, 8082, 8888, 9000, 9001 ou 29092.
+
+### 14.9. Bilan de l'US-05
+
+**US-05 est validée.** Le topic `transactions` peut recevoir les événements de `producer.py` (US-02), le bucket `lake` est prêt pour la couche Bronze (US-06), et le cluster Spark exécute des traitements distribués sur ses deux Workers.
+
+---
+
+**Documentation technique — EPIC-01 / US-05**  
+**SahlPay Data Platform — Zakaria El Bergui**
