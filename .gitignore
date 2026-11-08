@@ -27,6 +27,7 @@ Thumbs.db
 data/*
 !data/.gitkeep
 *.jsonl
+!spark/batch/tests/fixtures/us07_reference.jsonl
 *.parquet
 *.crc
 _SUCCESS

@@ -1,0 +1,11 @@
+{"tx_id":"TX-0000000001","type":"P2M","payer_wallet":"W-10001","payee_id":"M-001","device_id":"D-10001","city":"Rabat","channel":"APP","status":"COMPLETED","amount_mad":20.10,"event_time":"2026-11-07T08:00:01Z"}
+{"tx_id":"TX-0000000002","type":"P2M","payer_wallet":"W-10002","payee_id":"M-002","device_id":"D-10002","city":"Casablanca","channel":"APP","status":"COMPLETED","amount_mad":70.00,"event_time":"2026-11-07T08:00:02Z"}
+{"tx_id":"TX-0000000003","type":"P2M","payer_wallet":"W-10003","payee_id":"M-003","device_id":"D-10003","city":"Rabat","channel":"APP","status":"COMPLETED","amount_mad":60.00,"event_time":"2026-11-07T08:00:03Z"}
+{"tx_id":"TX-0000000004","type":"P2M","payer_wallet":"W-10004","payee_id":"M-004","device_id":"D-10004","city":"Casablanca","channel":"APP","status":"COMPLETED","amount_mad":50.01,"event_time":"2026-11-07T08:00:04Z"}
+{"tx_id":"TX-0000000005","type":"P2M","payer_wallet":"W-10005","payee_id":"M-006","device_id":"D-10005","city":"Fes","channel":"APP","status":"COMPLETED","amount_mad":40.00,"event_time":"2026-11-07T08:00:05Z"}
+{"tx_id":"TX-0000000006","type":"P2M","payer_wallet":"W-10006","payee_id":"M-005","device_id":"D-10006","city":"Fes","channel":"APP","status":"COMPLETED","amount_mad":40.00,"event_time":"2026-11-07T08:00:06Z"}
+{"tx_id":"TX-0000000007","type":"P2M","payer_wallet":"W-10007","payee_id":"M-001","device_id":"D-10007","city":"Rabat","channel":"APP","status":"COMPLETED","amount_mad":40.01,"event_time":"2026-11-07T08:00:07Z"}
+{"tx_id":"TX-0000000008","type":"P2P","payer_wallet":"W-10008","payee_id":"W-20008","device_id":"D-10008","city":"Rabat","channel":"APP","status":"COMPLETED","amount_mad":300.00,"event_time":"2026-11-07T08:00:08Z"}
+{"tx_id":"TX-0000000009","type":"P2M","payer_wallet":"W-10009","payee_id":"M-006","device_id":"D-10009","city":"Fes","channel":"APP","status":"REJECTED","amount_mad":200.00,"event_time":"2026-11-07T08:00:09Z"}
+{"tx_id":"TX-0000000010","type":"P2M","payer_wallet":"W-10010","payee_id":"M-007","device_id":"D-10010","city":"Rabat","channel":"APP","status":"REVERSED","amount_mad":100.00,"event_time":"2026-11-07T08:00:10Z"}
+{"tx_id":"TX-0000000001","type":"P2M","payer_wallet":"W-10001","payee_id":"M-001","device_id":"D-10001","city":"Rabat","channel":"APP","status":"COMPLETED","amount_mad":20.10,"event_time":"2026-11-07T08:00:01Z"}

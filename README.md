@@ -126,7 +126,7 @@ sahlpay-data-platform/
 ```bash
 git clone https://github.com/MRdrissi/sahlpay-data-platform.git
 cd sahlpay-data-platform
-git switch epic/01-infrastructure
+git switch epic/02-spark-rdd
 cp .env.example .env          # puis remplacer le mot de passe MinIO
 docker compose up -d --build
 docker compose ps
@@ -181,13 +181,13 @@ Le guide complet de déploiement et de vérification se trouve dans [`docs/epics
 ### Workflow d'une user story
 
 ```bash
-git pull --ff-only origin epic/01-infrastructure    # avant de commencer
+git pull --ff-only origin epic/02-spark-rdd    # avant de commencer
 # ... développement de la user story ...
 git status && git diff
 git add <fichiers-concernes>
 git commit -m "feat(US-X): description"            # un seul commit par user story
-git pull --rebase origin epic/01-infrastructure     # avant de pousser
-git push origin epic/01-infrastructure
+git pull --rebase origin epic/02-spark-rdd     # avant de pousser
+git push origin epic/02-spark-rdd
 ```
 
 ### Jalons
@@ -204,11 +204,24 @@ git push origin epic/01-infrastructure
 | Epic | Contenu | Document |
 |---|---|---|
 | EPIC-01 | Infrastructure | [EPIC-01-infrastructure.md](docs/epics/EPIC-01-infrastructure.md) |
-| EPIC-02 | Spark RDD | à venir |
+| EPIC-02 | Spark RDD | [US-06 · Historique Bronze](docs/epics/epic-02/us-06-bronze-history.md) · [US-07 · Analyses RDD](docs/epics/epic-02/us-07-analyses-rdd.md) |
 | EPIC-03 | Spark SQL et DataFrames | à venir |
 | EPIC-04 | Structured Streaming | à venir |
 | EPIC-05 | Pipeline de production | à venir |
 | EPIC-06 | Analyse de graphes | à venir |
+
+### US-07 — Exécuter les analyses RDD
+
+Depuis PowerShell, à la racine du dépôt, utiliser le cluster d’US-03 et le fichier `s3a://lake/bronze/history/transactions_history.jsonl` chargé par US-06. [Préparer la source Bronze](docs/epics/epic-02/us-06-bronze-history.md)
+
+```powershell
+docker compose cp .\spark\batch jupyter:/tmp
+docker compose exec -T jupyter /opt/spark/bin/spark-submit `
+  --master spark://spark-master:7077 --conf spark.driver.host=jupyter `
+  --executor-cores 2 --total-executor-cores 4 /tmp/batch/us07_rdd.py
+```
+
+Le script affiche l’effectif, le total et la moyenne en MAD par ville. Chaque événement Bronze compte, y compris les doublons. Le top 5 cumule les montants des paiements `P2M` au statut `COMPLETED` par `payee_id`. Sur les 50 000 événements de référence, `M-018` arrive en tête avec **218 217,62 MAD**. Ajouter `--type P2M --status COMPLETED --city Marrakech` après le nom du script sélectionne **1 919 événements**, pour un total de **4 755 142,96 MAD**. [Script PySpark](spark/batch/us07_rdd.py) · [Guide US-07, résultats, tests et captures](docs/epics/epic-02/us-07-analyses-rdd.md)
 
 ---
 
